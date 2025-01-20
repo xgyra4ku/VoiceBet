@@ -4,7 +4,7 @@
 #include <cstring>  // Для работы с C-строками
 #include <thread>  // Для работы с многозадачностью (если понадобится)
 #include <ws2tcpip.h>  // Для inet_pton, преобразование IP-адресов
-
+#include <math.h>
 #pragma comment(lib, "ws2_32.lib")  // Линковка библиотеки Winsock
 
 constexpr int SAMPLE_RATE = 44100;  // Частота дискретизации (частота аудио)
@@ -14,7 +14,8 @@ constexpr int PORT = 12345;  // Порт для связи с сервером
 constexpr char USERNAME[128] = "username";  // Имя пользователя
 constexpr char KEY_ROOM[256] = "1234";  // Ключ канала
 constexpr char type = 1;  // 1 - аудио включено, 0 - выключено
-
+// Порог срабатывания для аудио (например, амплитуда должна быть больше 0.01)
+constexpr float THRESHOLD = 0.015f;
 // Структура для хранения данных
 struct DataMessage {
     char username[128];                       // имя пользователя
@@ -36,7 +37,16 @@ void handleError(PaError err) {
         std::exit(EXIT_FAILURE);
     }
 }
+// Функция для проверки уровня сигнала
+bool isSignalAboveThreshold(const float* buffer, int frames) {
+    float maxAmplitude = 0.0f;
 
+    for (int i = 0; i < frames; ++i) {
+        maxAmplitude = std::max(maxAmplitude, std::fabs(buffer[i]));
+    }
+
+    return maxAmplitude > THRESHOLD;  // Если максимальная амплитуда больше порога, то сигнал значимый
+}
 int main() {
     // Инициализация Winsock
     WSADATA wsaData;
@@ -71,6 +81,10 @@ int main() {
     PaStream* stream;  // Поток для аудио
     handleError(Pa_OpenDefaultStream(&stream, 1, 0, paFloat32, SAMPLE_RATE, FRAMES_PER_BUFFER, nullptr, nullptr));  // Открытие аудио потока
     handleError(Pa_StartStream(stream));  // Запуск потока
+
+    PaStream* stream2;  // Поток для аудио
+    handleError(Pa_OpenDefaultStream(&stream2, 0, 1, paFloat32, SAMPLE_RATE, FRAMES_PER_BUFFER, nullptr, nullptr));  // Открытие аудио потока
+    handleError(Pa_StartStream(stream2));
 
     std::cout << "Streaming audio to " << SERVER_IP << ":" << PORT << "..." << std::endl;
 
@@ -123,10 +137,24 @@ int main() {
 
         char buffer[1024];  // Буфер для хранения ответа от сервера
         // Получение ответа от сервера
-        int bytesReceived = recvfrom(sockfd, buffer, sizeof(buffer), 0, (sockaddr*)&clientAddr, &clientAddrLen);
+        int bytesReceived = recvfrom(sockfd, (char*)&data, sizeof(data), 0, (sockaddr*)&clientAddr, &clientAddrLen);
         if (bytesReceived > 0) {
-            buffer[bytesReceived] = '\0';  // Добавляем терминатор строки
-            std::cout << "Received message from server: " << buffer << std::endl;
+
+            if (isSignalAboveThreshold(data.audioBuffer, FRAMES_PER_BUFFER)) {
+                std::cout << "Signal above threshold, processing..." << std::endl;
+                // Здесь можно обработать или отправить звук
+                // Обработка аудио-данных
+                PaError err = Pa_WriteStream(stream2, data.audioBuffer, FRAMES_PER_BUFFER);
+                if (err == paOutputUnderflowed) {
+                    std::cerr << "PortAudio warning: Output underflowed." << std::endl;
+                } else {
+                    handleError(err);
+                }// Формирование ответа клиенту
+            } else {
+                std::cout << "Signal below threshold, ignoring..." << std::endl;
+                // Игнорируем звук, т.к. он слишком тихий
+            }
+
         }
 
     }

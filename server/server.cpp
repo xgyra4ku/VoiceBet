@@ -91,8 +91,8 @@ int main() {
                // } else {
                 //    handleError(err);
                 //}// Формирование ответа клиенту
-                const char *response = "Data received successfully!";
-                ssize_t bytesSent = sendto(sockfd, response, strlen(response), 0, (sockaddr *) &clientAddr,
+                //const char *response = "Data received successfully!";
+                ssize_t bytesSent = sendto(sockfd, (char*)&dataPackage, sizeof(dataPackage), 0, (sockaddr *) &clientAddr,
                                            clientAddrLen);
                 if (bytesSent > 0) {
                     std::cout << "Response sent to client." << std::endl;
