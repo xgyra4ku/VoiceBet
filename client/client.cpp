@@ -11,17 +11,29 @@ constexpr int SAMPLE_RATE = 44100;  // Частота дискретизации
 constexpr int FRAMES_PER_BUFFER = 1024;  // Количество сэмплов в одном аудио-буфере
 constexpr const char* SERVER_IP = "127.0.0.1";  // IP-адрес сервера (localhost)
 constexpr int PORT = 12345;  // Порт для связи с сервером
+constexpr char USERNAME[128] = "username";  // Имя пользователя
+constexpr char KEY_ROOM[256] = "1234";  // Ключ канала
+constexpr char type = 1;  // 1 - аудио включено, 0 - выключено
 
-// Структура для хранения аудио данных
-struct AudioData {
-    float buffer[FRAMES_PER_BUFFER];  // Буфер для аудио данных
+// Структура для хранения данных
+struct DataMessage {
+    char username[128];                       // имя пользователя
+    char keyRoom[256];                       // ключ канала
+    char type;                              // 1 - аудио включено(голос), 0 - выключено(сообщение) 2 запрос на подключение
+    float audioBuffer[FRAMES_PER_BUFFER];  // Буфер для аудио данных
 };
-
 // Функция для обработки ошибок PortAudio
 void handleError(PaError err) {
-    if (err != paNoError) {  // Проверка на ошибку
-        std::cerr << "PortAudio error: " << Pa_GetErrorText(err) << std::endl;  // Вывод ошибки в консоль
-        std::exit(EXIT_FAILURE);  // Завершаем программу с ошибкой
+    if (err != paNoError) {
+        // Если ошибка связана с недогрузкой, просто предупреждаем
+        if (err == paOutputUnderflowed) {
+            std::cerr << "PortAudio warning: Output underflowed. Continuing..." << std::endl;
+            return; // Игнорируем ошибку
+        }
+
+        // Для других ошибок выводим сообщение и завершаем выполнение
+        std::cerr << "PortAudio error: " << Pa_GetErrorText(err) << std::endl;
+        std::exit(EXIT_FAILURE);
     }
 }
 
@@ -62,17 +74,59 @@ int main() {
 
     std::cout << "Streaming audio to " << SERVER_IP << ":" << PORT << "..." << std::endl;
 
-    AudioData data{};  // Создаем объект для хранения аудио данных
+    DataMessage data{};  // Создаем объект для хранения аудио данных
+    std::strcpy(data.username, USERNAME);  // Копируем имя пользователя в объект
+    std::strcpy(data.keyRoom, KEY_ROOM);  // Копируем ключ канала в объект
+    data.type = type;  // Устанавливаем тип данных
+
+    sockaddr_in clientAddr{};
+    int clientAddrLen = sizeof(clientAddr);
+
+    // запрос на подключение
+    std::cout << "Waiting for connection..." << std::endl;
+    DataMessage request{};
+    std::strcpy(request.username, USERNAME);
+    std::strcpy(request.keyRoom, KEY_ROOM);
+    request.type = 2;
+    int sendResult = sendto(sockfd, (char*)&request, sizeof(request), 0, (sockaddr*)&serverAddr, sizeof(serverAddr));
+    if (sendResult == SOCKET_ERROR) {
+        std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
+    }
+    // Ожидание ответа от сервера
+    char response[8];
+    int bytesReceived = recvfrom(sockfd, response, sizeof(response), 0, (sockaddr*)&clientAddr, &clientAddrLen);
+    if (bytesReceived > 0) {
+        response[bytesReceived] = '\0'; // Завершаем строку нуль-терминатором
+        if (strcmp(response, "yes") == 0) {
+            std::cout << "Connected" << std::endl;
+        }
+        else {
+            std::cout << response << std::endl;
+            std::cout << "Connection failed" << std::endl;
+            return -1;
+        }
+    } else {
+        std::cerr << "Receive failed: " << WSAGetLastError() << std::endl;
+    }
+
     while (true) {
         // Чтение аудио данных из устройства
-        handleError(Pa_ReadStream(stream, data.buffer, FRAMES_PER_BUFFER));
+        handleError(Pa_ReadStream(stream, data.audioBuffer, FRAMES_PER_BUFFER));
 
         // Логируем отправку данных
         int sendResult = sendto(sockfd, (char*)&data, sizeof(data), 0, (sockaddr*)&serverAddr, sizeof(serverAddr));
         if (sendResult == SOCKET_ERROR) {
             std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
         } else {
-            std::cout << "Sent data to server" << std::endl; // Логирование отправки
+            //std::cout << "Sent data to server" << std::endl; // Логирование отправки
+        }
+
+        char buffer[1024];  // Буфер для хранения ответа от сервера
+        // Получение ответа от сервера
+        int bytesReceived = recvfrom(sockfd, buffer, sizeof(buffer), 0, (sockaddr*)&clientAddr, &clientAddrLen);
+        if (bytesReceived > 0) {
+            buffer[bytesReceived] = '\0';  // Добавляем терминатор строки
+            std::cout << "Received message from server: " << buffer << std::endl;
         }
 
     }

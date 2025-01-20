@@ -3,16 +3,21 @@
 #include <thread>    // Для работы с многозадачностью (в случае использования потоков)
 #include <winsock2.h>  // Для работы с сокетами на Windows
 #include <portaudio.h>  // Для работы с аудио
+#include <map>
 
 #pragma comment(lib, "ws2_32.lib")  // Линковка библиотеки Winsock
 
 constexpr int SAMPLE_RATE = 44100;  // Частота дискретизации (частота аудио)
 constexpr int FRAMES_PER_BUFFER = 1024;  // Количество сэмплов в одном аудио-буфере
 constexpr int PORT = 12345;  // Порт для связи с клиентом
+std::map<std::string, std::string> rooms;
 
-// Структура для хранения аудио данных
-struct AudioData {
-    float buffer[FRAMES_PER_BUFFER];  // Буфер для аудио данных
+// Структура для хранения данных
+struct DataMessage {
+    char username[128];                   // имя пользователя
+    char keyRoom[256];               // ключ канала
+    char type;                         // 1 - аудио включено(голос), 0 - выключено(сообщение) 2 - запрос на подключение
+    float audioBuffer[FRAMES_PER_BUFFER];   // Буфер для аудио данных
 };
 
 // Функция для обработки ошибок PortAudio
@@ -48,7 +53,7 @@ int main() {
         return -1;  // Выход с ошибкой
     }
 
-    sockaddr_in serverAddr{};  // Структура для хранения адреса сервера
+    sockaddr_in serverAddr{}, clientAddr{};  // Структура для хранения адреса сервера
     serverAddr.sin_family = AF_INET;  // Используем IPv4
     serverAddr.sin_addr.s_addr = INADDR_ANY;  // Слушаем на всех интерфейсах
     serverAddr.sin_port = htons(PORT);  // Устанавливаем порт (переводим в сетевой порядок байтов)
@@ -68,19 +73,44 @@ int main() {
 
     std::cout << "Server is listening on port " << PORT << "..." << std::endl;  // Информация о запуске сервера
 
-    AudioData data{};  // Создаем объект для хранения аудио данных
-    sockaddr_in clientAddr{};  // Адрес клиента
+    DataMessage dataPackage{};  // Создаем объект для хранения аудио данных
     int clientAddrLen = sizeof(clientAddr);
 
     while (true) {  // Бесконечный цикл для приема данных
-        ssize_t bytesReceived = recvfrom(sockfd, (char*)&data, sizeof(data), 0, (sockaddr*)&clientAddr, &clientAddrLen);
+        // Получаем данные от клиента через сокет
+        ssize_t bytesReceived = recvfrom(sockfd, (char*)&dataPackage, sizeof(dataPackage), 0, (sockaddr*)&clientAddr, &clientAddrLen);
+        // Проверяем, были ли получены данные
         if (bytesReceived > 0) {
-            std::cout << "Received " << bytesReceived << " bytes" << std::endl; // Логирование
-            handleError(Pa_WriteStream(stream, data.buffer, FRAMES_PER_BUFFER));
-        } else {
-            std::cerr << "No data received or error occurred" << std::endl;
-        }
+            // Обработка данных от клиента
 
+            if (dataPackage.type == 1) {
+                // Обработка аудио-данных
+               // PaError err = Pa_WriteStream(stream, dataPackage.audioBuffer, FRAMES_PER_BUFFER);
+               // if (err == paOutputUnderflowed) {
+                //    std::cerr << "PortAudio warning: Output underflowed." << std::endl;
+               // } else {
+                //    handleError(err);
+                //}// Формирование ответа клиенту
+                const char *response = "Data received successfully!";
+                ssize_t bytesSent = sendto(sockfd, response, strlen(response), 0, (sockaddr *) &clientAddr,
+                                           clientAddrLen);
+                if (bytesSent > 0) {
+                    std::cout << "Response sent to client." << std::endl;
+                } else {
+                    perror("Failed to send response");
+                }
+            }
+            if (dataPackage.type == 2) {
+                const char *response = "yes";
+                ssize_t bytesSent = sendto(sockfd, response, strlen(response), 0, (sockaddr *) &clientAddr,clientAddrLen);
+                if (bytesSent > 0) {
+                    std::cout << "Client: " << dataPackage.username << " joined the room: " << dataPackage.keyRoom << std::endl;
+                    rooms[dataPackage.keyRoom] = dataPackage.username;  // Добавляем клиента в комнату[]
+                } else {
+                    perror("Failed to connect to client");
+                }
+            }
+        }
     }
 
 
