@@ -5,17 +5,19 @@
 #include <thread>  // Для работы с многозадачностью (если понадобится)
 #include <ws2tcpip.h>  // Для inet_pton, преобразование IP-адресов
 #include <math.h>
+#include <mutex>
 #pragma comment(lib, "ws2_32.lib")  // Линковка библиотеки Winsock
 
 constexpr int SAMPLE_RATE = 44100;  // Частота дискретизации (частота аудио)
 constexpr int FRAMES_PER_BUFFER = 1024;  // Количество сэмплов в одном аудио-буфере
-constexpr const char* SERVER_IP = "127.0.0.1";  // IP-адрес сервера (localhost)
+constexpr const char* SERVER_IP = "192.168.0.107";  // IP-адрес сервера (localhost)
 constexpr int PORT = 12345;  // Порт для связи с сервером
-constexpr char USERNAME[128] = "username";  // Имя пользователя
+constexpr char USERNAME[128] = "username2";  // Имя пользователя
 constexpr char KEY_ROOM[256] = "1234";  // Ключ канала
 constexpr char type = 1;  // 1 - аудио включено, 0 - выключено
 // Порог срабатывания для аудио (например, амплитуда должна быть больше 0.01)
 constexpr float THRESHOLD = 0.015f;
+bool isNewAudio =false;
 // Структура для хранения данных
 struct DataMessage {
     char username[128];                       // имя пользователя
@@ -23,6 +25,13 @@ struct DataMessage {
     char type;                              // 1 - аудио включено(голос), 0 - выключено(сообщение) 2 запрос на подключение
     float audioBuffer[FRAMES_PER_BUFFER];  // Буфер для аудио данных
 };
+sockaddr_in clientAddr{};
+int clientAddrLen = sizeof(clientAddr);
+int sockfd;
+DataMessage data{};  // Создаем объект для хранения аудио данных
+PaStream* stream2;  // Поток для аудио
+std::thread roomThread;
+std::mutex clientMutex;
 // Функция для обработки ошибок PortAudio
 void handleError(PaError err) {
     if (err != paNoError) {
@@ -47,6 +56,35 @@ bool isSignalAboveThreshold(const float* buffer, int frames) {
 
     return maxAmplitude > THRESHOLD;  // Если максимальная амплитуда больше порога, то сигнал значимый
 }
+
+void streamAudioThread() {
+    std::cout << "Thread is running" << std::endl;
+    while (true) {
+            // Получение ответа от сервера
+            int bytesReceived = recvfrom(sockfd, (char*)&data, sizeof(data), 0, (sockaddr*)&clientAddr, &clientAddrLen);
+            if (bytesReceived > 0) {
+
+                if (isSignalAboveThreshold(data.audioBuffer, FRAMES_PER_BUFFER)) {
+                    std::cout << "Signal above threshold, processing..." << std::endl;
+                    // Здесь можно обработать или отправить звук
+                    // Обработка аудио-данных
+                    PaError err = Pa_WriteStream(stream2, data.audioBuffer, FRAMES_PER_BUFFER);
+                    if (err == paOutputUnderflowed) {
+                        std::cerr << "PortAudio warning: Output underflowed." << std::endl;
+                    } else {
+                        handleError(err);
+                    }// Формирование ответа клиенту
+                } else {
+                    std::cout << "Signal below threshold, ignoring..." << std::endl;
+                    // Игнорируем звук, т.к. он слишком тихий
+                }
+
+            }
+        std::lock_guard<std::mutex> lock(clientMutex);
+    }
+}
+
+
 int main() {
     // Инициализация Winsock
     WSADATA wsaData;
@@ -57,7 +95,7 @@ int main() {
     }
 
     // Создание UDP сокета
-    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);  // Создаем UDP сокет
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);  // Создаем UDP сокет
     if (sockfd == INVALID_SOCKET) {  // Если создание сокета не удалось
         std::cerr << "Socket creation failed: " << WSAGetLastError() << std::endl;
         WSACleanup();  // Завершаем работу с Winsock
@@ -82,13 +120,13 @@ int main() {
     handleError(Pa_OpenDefaultStream(&stream, 1, 0, paFloat32, SAMPLE_RATE, FRAMES_PER_BUFFER, nullptr, nullptr));  // Открытие аудио потока
     handleError(Pa_StartStream(stream));  // Запуск потока
 
-    PaStream* stream2;  // Поток для аудио
+
     handleError(Pa_OpenDefaultStream(&stream2, 0, 1, paFloat32, SAMPLE_RATE, FRAMES_PER_BUFFER, nullptr, nullptr));  // Открытие аудио потока
     handleError(Pa_StartStream(stream2));
 
     std::cout << "Streaming audio to " << SERVER_IP << ":" << PORT << "..." << std::endl;
 
-    DataMessage data{};  // Создаем объект для хранения аудио данных
+
     std::strcpy(data.username, USERNAME);  // Копируем имя пользователя в объект
     std::strcpy(data.keyRoom, KEY_ROOM);  // Копируем ключ канала в объект
     data.type = type;  // Устанавливаем тип данных
@@ -122,7 +160,7 @@ int main() {
     } else {
         std::cerr << "Receive failed: " << WSAGetLastError() << std::endl;
     }
-
+    roomThread = std::thread(&streamAudioThread);
     while (true) {
         // Чтение аудио данных из устройства
         handleError(Pa_ReadStream(stream, data.audioBuffer, FRAMES_PER_BUFFER));
@@ -132,31 +170,9 @@ int main() {
         if (sendResult == SOCKET_ERROR) {
             std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
         } else {
-            //std::cout << "Sent data to server" << std::endl; // Логирование отправки
+            std::cout << "Sent data to server" << std::endl; // Логирование отправки
         }
-
-        char buffer[1024];  // Буфер для хранения ответа от сервера
-        // Получение ответа от сервера
-        int bytesReceived = recvfrom(sockfd, (char*)&data, sizeof(data), 0, (sockaddr*)&clientAddr, &clientAddrLen);
-        if (bytesReceived > 0) {
-
-            if (isSignalAboveThreshold(data.audioBuffer, FRAMES_PER_BUFFER)) {
-                std::cout << "Signal above threshold, processing..." << std::endl;
-                // Здесь можно обработать или отправить звук
-                // Обработка аудио-данных
-                PaError err = Pa_WriteStream(stream2, data.audioBuffer, FRAMES_PER_BUFFER);
-                if (err == paOutputUnderflowed) {
-                    std::cerr << "PortAudio warning: Output underflowed." << std::endl;
-                } else {
-                    handleError(err);
-                }// Формирование ответа клиенту
-            } else {
-                std::cout << "Signal below threshold, ignoring..." << std::endl;
-                // Игнорируем звук, т.к. он слишком тихий
-            }
-
-        }
-
+        std::lock_guard<std::mutex> lock(clientMutex);
     }
 
     // Завершение работы
