@@ -16,7 +16,11 @@ include_directories(${PORTAUDIO_INCLUDE_DIR})
 link_directories(${PORTAUDIO_LIB_DIR})
 
 # Добавляем основной исходный файл для сервера
-add_executable(Server server.cpp)
+add_executable(Server main.cpp
+        src/ClientHandler.cpp
+        src/Server.cpp
+        inc/ClientHandler.h
+        inc/Server.h)
 
 # Линкуем библиотеку PortAudio
 target_link_libraries(Server portaudio)
