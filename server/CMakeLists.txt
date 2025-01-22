@@ -20,7 +20,8 @@ add_executable(Server main.cpp
         src/ClientHandler.cpp
         src/Server.cpp
         inc/ClientHandler.h
-        inc/Server.h)
+        inc/Server.h
+        main.cpp)
 
 # Линкуем библиотеку PortAudio
 target_link_libraries(Server portaudio)

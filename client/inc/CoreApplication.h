@@ -8,6 +8,7 @@
 #include <mutex>
 
 #include "structMessage.h"
+#include "Room.h"
 
 #pragma comment(lib, "ws2_32.lib")  // Линковка библиотеки Winsock
 
@@ -20,9 +21,11 @@ class CoreApplication {
     PaStream* streamAudio = nullptr;   // Поток для трансляции аудио
     PaStream* recordAudio = nullptr;  // Поток для записи аудио
 
+    Room* room = nullptr;
+
     const char* SERVER_IP = "192.168.0.107";        // IP-адрес сервера (localhost)
     const int PORT = 12345;                        // Порт для связи с сервером
-    const char USERNAME[128] = "username1";       // Имя пользователя
+    const char USERNAME[128] = "username2";       // Имя пользователя
     const char KEY_ROOM[256] = "1234";           // Ключ канала
     const char type = 1;                        // 1 - аудио включено, 0 - выключено
     const float THRESHOLD = 0.0f;            // Порог срабатывания для аудио (например, амплитуда должна быть больше 0.01)

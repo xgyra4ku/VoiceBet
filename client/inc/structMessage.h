@@ -1,6 +1,6 @@
 #ifndef STRUCTMESSAGE_H
 #define STRUCTMESSAGE_H
-constexpr int FRAMES_PER_BUFFER = 1024;  // Количество сэмплов в одном аудио-буфере
+constexpr int FRAMES_PER_BUFFER = 512;  // Количество сэмплов в одном аудио-буфере
 
 struct DataMessage {
     char username[128];                       // имя пользователя

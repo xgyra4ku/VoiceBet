@@ -19,7 +19,11 @@ link_directories(${PORTAUDIO_LIB_DIR})
 add_executable(Client client.cpp
         inc/CoreApplication.h
         src/CoreApplication.cpp
-        inc/structMessage.h)
+        inc/structMessage.h
+        inc/NetworkHandler.h
+        src/NetworkHandler.cpp
+        src/Room.cpp
+        inc/Room.h)
 
 # Линкуем библиотеку PortAudio
 target_link_libraries(Client portaudio)

@@ -4,6 +4,9 @@
 
 class NetworkHandler {
 
+public:
+    NetworkHandler();
+    ~NetworkHandler();
 };
 
 

@@ -5,7 +5,7 @@
 #include <cstring>  // Для работы с C-строками
 #include <thread>  // Для работы с многозадачностью (если понадобится)
 #include <ws2tcpip.h>  // Для inet_pton, преобразование IP-адресов
-#include <math.h>
+#include <cmath>
 #include <mutex>
 
 CoreApplication::CoreApplication() {
@@ -116,21 +116,16 @@ void CoreApplication::run() {
     std::strcpy(request.username, USERNAME);  // Копируем имя пользователя в объект
     std::strcpy(request.keyRoom, KEY_ROOM);  // Копируем ключ канала в объект
     request.type = type;  // Устанавливаем тип данных
+    room = new Room(KEY_ROOM, sockfd, request, serverAddr);
+    room->start();
     while (true) {
-        // Чтение аудио данных из устройства
-        handleError(Pa_ReadStream(recordAudio, request.audioBuffer, FRAMES_PER_BUFFER));
 
-        // Логируем отправку данных
-        int sendResult = sendto(sockfd, (char*)&request, sizeof(request), 0, (sockaddr*)&serverAddr, sizeof(serverAddr));
-        if (sendResult == SOCKET_ERROR) {
-            std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
-        } else {
-            std::cout << "Sent data to server" << std::endl; // Логирование отправки
-        }
         // Получение ответа от сервера
         int bytesReceived = recvfrom(sockfd, (char*)&request, sizeof(request), 0, (sockaddr*)&clientAddr, &clientAddrLen);
         if (bytesReceived > 0) {
-
+            if (request.type == 1) {
+                //room->processMessage(request);
+            }
             if (isSignalAboveThreshold(request.audioBuffer, FRAMES_PER_BUFFER)) {
                 std::cout << "Signal above threshold, processing..." << std::endl;
                 // Здесь можно обработать или отправить звук
@@ -145,7 +140,6 @@ void CoreApplication::run() {
                 std::cout << "Signal below threshold, ignoring..." << std::endl;
                 // Игнорируем звук, т.к. он слишком тихий
             }
-
         }
     }
 }

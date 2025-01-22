@@ -12,7 +12,7 @@
 #pragma comment(lib, "ws2_32.lib")  // Линковка библиотеки Winsock
 
 constexpr int SAMPLE_RATE = 44100;  // Частота дискретизации (частота аудио)
-constexpr int FRAMES_PER_BUFFER = 1024;  // Количество сэмплов в одном аудио-буфере
+constexpr int FRAMES_PER_BUFFER =512;  // Количество сэмплов в одном аудио-буфере
 constexpr int PORT = 12345;  // Порт для связи с клиентом
 // Структура для хранения данных
 // struct DataMessage {

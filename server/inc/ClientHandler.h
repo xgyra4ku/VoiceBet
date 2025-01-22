@@ -13,7 +13,7 @@ struct DataMessage {
     char username[128];      // имя пользователя
     char keyRoom[256];       // ключ канала
     char type;               // 1 - аудио включено(голос), 0 - выключено(сообщение) 2 - запрос на подключение
-    float audioBuffer[1024]; // Буфер для аудио данных
+    float audioBuffer[512]; // Буфер для аудио данных
 };
 
 

@@ -1,5 +1,9 @@
-//
-// Created by koren on 22.01.2025.
-//
+#include "../inc/NetworkHandler.h"
 
-#include "NetworkHandler.h"
+NetworkHandler::NetworkHandler() {
+
+}
+
+NetworkHandler::~NetworkHandler() {
+
+}
