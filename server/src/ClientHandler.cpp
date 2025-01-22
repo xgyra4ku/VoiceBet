@@ -39,6 +39,18 @@ void RoomHandler::stop() {
     }
 }
 
+void RoomHandler::confirmAKS() {
+    isAKS = true;
+    std::lock_guard<std::mutex> lock(clientMutex);
+}
+
+void RoomHandler::confirmMessage() {
+    while (!isAKS) {
+
+    }
+}
+
+
 void RoomHandler::roomLoop() {
     std::cout << "Room " << roomKey << " is running..." << std::endl;
     while (isRunning) {
@@ -53,7 +65,6 @@ void RoomHandler::roomLoop() {
                            (sockaddr*)&client.second.clientAddr, sizeof(client.second.clientAddr));
                     if (bytesSent > 0) {
                         std::cout << "Response sent to client: " << client.second.username << std::endl;
-
                     } else {
                         std::cerr << "Failed to send response to client: " << client.second.username
                                   << " Error: " << WSAGetLastError() << std::endl;

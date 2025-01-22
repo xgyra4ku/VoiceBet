@@ -34,7 +34,8 @@ private:
     std::map<std::string, ClientInformation> clients;
     std::thread roomThread;             // Поток обработки комнаты
     std::atomic<bool> isRunning;        // Флаг работы комнаты
-    std::atomic<bool> isNewMessage;        // Флаг работы комнаты
+    std::atomic<bool> isNewMessage;
+    std::atomic<bool> isAKS;
     int sockfd;                         // Сокет сервера
     std::mutex clientMutex;             // Мьютекс для потокобезопасной работы с клиентами
 
@@ -49,6 +50,7 @@ public:
     void start(); // Запуск комнаты
     void stop(); // Остановка комнаты
     void processMessage(DataMessage dataPackage, SOCKADDR_IN clientAddr);
+    void confirmAKS();
 };
 
 #endif
