@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cstring>
 
+
 RoomHandler::RoomHandler(const std::string& key, int serverSockfd)
     : roomKey(key), sockfd(serverSockfd), isRunning(false) {}
 
@@ -16,9 +17,14 @@ void RoomHandler::processMessage(DataMessage dataPackage, SOCKADDR_IN clientAddr
     std::lock_guard<std::mutex> lock(clientMutex);
 }
 
-void RoomHandler::addClient(const SOCKADDR_IN& clientAddr) {
+void RoomHandler::addClient(const SOCKADDR_IN& clientAddr, DataMessage dataPackage) {
+    ClientInformation newClient;
+    newClient.username = dataPackage.username;
+    newClient.clientAddr = clientAddr;
     std::lock_guard<std::mutex> lock(clientMutex);
-    clients.push_back(clientAddr);
+    // clients.push_back(clientAddr);
+    clients[dataPackage.username] = newClient;
+
     std::cout << "Client added to room " << roomKey << std::endl;
 }
 
@@ -42,6 +48,7 @@ void RoomHandler::roomLoop() {
 
             // Пример отправки ответа
             for (const auto& client : clients) {
+                if (client.first == messagePackage.dataPackage.username) continue; // Skip the sende
                 //sendto(sockfd, buffer, bytesReceived, 0,);
                 ssize_t bytesSent = sendto(sockfd, (char*)&messagePackage.dataPackage, sizeof(messagePackage.dataPackage), 0, (sockaddr*)&client, sizeof(client));
                 if (bytesSent > 0) {

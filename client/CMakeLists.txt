@@ -16,7 +16,10 @@ include_directories(${PORTAUDIO_INCLUDE_DIR})
 link_directories(${PORTAUDIO_LIB_DIR})
 
 # Указываем, какие библиотеки линковать с проектом
-add_executable(Client client.cpp)
+add_executable(Client client.cpp
+        inc/CoreApplication.h
+        src/CoreApplication.cpp
+        inc/structMessage.h)
 
 # Линкуем библиотеку PortAudio
 target_link_libraries(Client portaudio)

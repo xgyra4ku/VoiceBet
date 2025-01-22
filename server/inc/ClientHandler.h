@@ -16,6 +16,12 @@ struct DataMessage {
     float audioBuffer[1024]; // Буфер для аудио данных
 };
 
+
+struct ClientInformation {
+    std::string username; // Имя пользователя
+    SOCKADDR_IN clientAddr;
+};
+
 class RoomHandler {
 private:
     struct MessagePackage {
@@ -24,7 +30,8 @@ private:
     };
     MessagePackage messagePackage{};
     std::string roomKey;                // Ключ комнаты
-    std::vector<SOCKADDR_IN> clients;   // Список клиентов (адреса)
+    //std::vector<SOCKADDR_IN> clients;   // Список клиентов (адреса)
+    std::map<std::string, ClientInformation> clients;
     std::thread roomThread;             // Поток обработки комнаты
     std::atomic<bool> isRunning;        // Флаг работы комнаты
     std::atomic<bool> isNewMessage;        // Флаг работы комнаты
@@ -38,7 +45,7 @@ public:
 
     ~RoomHandler();
 
-    void addClient(const SOCKADDR_IN &clientAddr); // Добавить клиента
+    void addClient(const SOCKADDR_IN& clientAddr, DataMessage dataPackage); // Добавить клиента
     void start(); // Запуск комнаты
     void stop(); // Остановка комнаты
     void processMessage(DataMessage dataPackage, SOCKADDR_IN clientAddr);

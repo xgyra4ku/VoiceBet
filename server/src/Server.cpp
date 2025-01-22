@@ -67,7 +67,7 @@ void Server::run() {
                     }
 
                     // Добавляем клиента в комнату
-                    rooms[dataPackage.keyRoom]->addClient(clientAddr);
+                    rooms[dataPackage.keyRoom]->addClient(clientAddr, dataPackage);
                 } else {
                     perror("Failed to connect to client");
                 }
