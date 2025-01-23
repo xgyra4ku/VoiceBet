@@ -50,6 +50,8 @@ private:
     static uint64_t generateMessageId();
     bool waitForAck(uint64_t messageId, int timeoutMs);
 
+    void sendAcknowledgement(uint64_t message_id, SOCKADDR_IN serverAddr) const;
+
 public:
     RoomHandler(const std::string &key, int serverSockfd);
 

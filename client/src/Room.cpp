@@ -7,6 +7,7 @@
 #include <thread>  // Для работы с многозадачностью (если понадобится)
 #include <ws2tcpip.h>  // Для inet_pton, преобразование IP-адресов
 #include <mutex>
+#include <vector>
 
 Room::Room(const std::string &key, int serverSockfd, DataMessage dataPackage, SOCKADDR_IN serverAddr)
     : serverAddr(serverAddr), roomKey(key), isRunning(false), isNewMessage(false) , sockfd(serverSockfd){
@@ -51,7 +52,7 @@ void Room::processMessage(const DataMessage &dataPackage) {
 
 }
 
-void Room::handleError(PaError err) {
+void Room::handleError(const PaError err) {
     if (err != paNoError) {
         // Если ошибка связана с недогрузкой, просто предупреждаем
         if (err == paOutputUnderflowed) {
@@ -74,6 +75,78 @@ bool Room::isSignalAboveThreshold(const float *buffer, int frames) const {
 
     return maxAmplitude > THRESHOLD;  // Если максимальная амплитуда больше порога, то сигнал значимый
 }
+uint64_t Room::generateMessageId() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()
+    ).count();
+}
+bool Room::waitForAck(uint64_t messageId, int timeoutMs) {
+    auto startTime = std::chrono::steady_clock::now();
+
+    while (true) {
+        {
+            std::lock_guard<std::mutex> lock(clientMutex);
+            if (bufferACK.find(messageId) == bufferACK.end()) {
+                return true;  // Подтверждение получено
+            }
+        }
+
+        auto currentTime = std::chrono::steady_clock::now();
+        int elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count();
+        if (elapsedMs > timeoutMs) {
+            return false;  // Таймаут истёк
+        }
+    }
+}
+
+void Room::sendAcknowledgement(const uint64_t message_id,  SOCKADDR_IN serverAddr) const {
+    // Формируем подтверждение и отправляем
+    DataMessage ackMessage{};
+    ackMessage.message_id = message_id;
+    ackMessage.type = 3; // Тип подтверждения
+    if (const int sendResult = sendto(sockfd, (char*)&ackMessage, sizeof(ackMessage), 0, (sockaddr*)&serverAddr, sizeof(serverAddr)); sendResult == SOCKET_ERROR) {
+        std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
+    }
+}
+// Функция для отправки данных серверу
+void Room::sendData(const DataMessage &dataPackage, SOCKADDR_IN serverAddr) {
+    uint64_t messageId = generateMessageId();
+    dataPackageSend.message_id = messageId;
+    // Логируем отправку данных
+    int sendResult = sendto(sockfd, (char*)&dataPackageSend, sizeof(dataPackageSend), 0, (sockaddr*)&serverAddr, sizeof(serverAddr));
+    if (sendResult == SOCKET_ERROR) {
+        std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
+        bool ackReceived = false;
+        int retryCount = 0;
+        const int maxRetries = 3;      // Максимальное число попыток
+        const int timeoutMs = 1000;   // Таймаут ожидания подтверждения в миллисекундах
+
+        while (!ackReceived && retryCount < maxRetries) {
+            ssize_t bytesSent = sendto(sockfd, (char*)&dataPackageSend, sizeof(dataPackageSend), 0,
+                                       (sockaddr*)&serverAddr, sizeof(serverAddr));
+            if (bytesSent > 0) {
+                std::cout << "Message sent to client: " << dataPackageSend.username << ", message_id: " << dataPackageSend.message_id << std::endl;
+
+                // Ожидание подтверждения
+                ackReceived = waitForAck(messageId, timeoutMs);
+                if (!ackReceived) {
+                    retryCount++;
+                    std::cerr << "No acknowledgment received. Retrying (" << retryCount << "/" << maxRetries << ")..." << std::endl;
+                }
+            } else {
+                std::cerr << "Failed to send message to client: " << dataPackageSend.username
+                          << " Error: " << WSAGetLastError() << std::endl;
+                break;
+            }
+        }
+
+        if (!ackReceived) {
+            std::cerr << "Failed to receive acknowledgment from client: " << dataPackageSend.username << " after " << maxRetries << " attempts." << std::endl;
+        }
+    } else {
+        std::cout << "Sent data to server" << std::endl; // Логирование отправки
+    }
+}
 
 void Room::roomLoop() {
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);  // Создание UDP сокета для IPv4
@@ -84,46 +157,41 @@ void Room::roomLoop() {
 
     while (isRunning) {
         if (isNewMessage) {
-            // Поиск элемента
-            auto it = bufferACK.find(dataPackageMessage.message_id);
-            if (it == bufferACK.end()){
-                if (isSignalAboveThreshold(dataPackageMessage.audioBuffer, FRAMES_PER_BUFFER)) {
-                    std::cout << "Signal above threshold, processing..." << std::endl;
-                    // Здесь можно обработать или отправить звук
-                    // Обработка аудио-данных
-                    PaError err = Pa_WriteStream(streamAudio, dataPackageMessage.audioBuffer, FRAMES_PER_BUFFER);
-                    if (err == paOutputUnderflowed) {
-                        std::cerr << "PortAudio warning: Output underflowed." << std::endl;
+            if (dataPackageMessage.type == 1) {
+                if (bufferMessage.find(dataPackageMessage.message_id) == bufferMessage.end()){
+                    if (isSignalAboveThreshold(dataPackageMessage.audioBuffer, FRAMES_PER_BUFFER)) {
+                        std::cout << "Signal above threshold, processing..." << std::endl;
+                        // Здесь можно обработать или отправить звук
+                        // Обработка аудио-данных
+                        PaError err = Pa_WriteStream(streamAudio, dataPackageMessage.audioBuffer, FRAMES_PER_BUFFER);
+                        if (err == paOutputUnderflowed) {
+                            std::cerr << "PortAudio warning: Output underflowed." << std::endl;
+                        } else {
+                            handleError(err);
+                        }// Формирование ответа клиенту
                     } else {
-                        handleError(err);
-                    }// Формирование ответа клиенту
-                } else {
-                    std::cout << "Signal below threshold, ignoring..." << std::endl;
-                    // Игнорируем звук, т.к. он слишком тихий
+                        std::cout << "Signal below threshold, ignoring..." << std::endl;
+                        // Игнорируем звук, т.к. он слишком тихий
+                    }
+                    bufferMessage.clear();
+                    bufferMessage.insert(dataPackageMessage.message_id);
                 }
+                sendAcknowledgement(dataPackageMessage.message_id, serverAddr);
+                isNewMessage = false;
+                std::lock_guard<std::mutex> lock(clientMutex);
+            } else if (dataPackageMessage.type == 3) {
+                std::lock_guard<std::mutex> lock(clientMutex);
+                uint64_t receivedId = dataPackageMessage.message_id;
+                if (bufferACK.find(receivedId) != bufferACK.end()) {
+                    bufferACK.erase(receivedId);
+                }
+                std::cout << "Acknowledgment received for message_id: " << receivedId << std::endl;
             }
-            dataPackageConfirm.message_id = dataPackageMessage.message_id;
-            // Логируем отправку данных
-            int sendResult = sendto(sockfd, (char*)&dataPackageConfirm, sizeof(dataPackageConfirm), 0, (sockaddr*)&serverAddr, sizeof(serverAddr));
-            if (sendResult == SOCKET_ERROR) {
-                std::cerr << "ACK failed: " << WSAGetLastError() << std::endl;
-            } else {
-                std::cout << "ACK data to server" << std::endl; // Логирование отправки
-            }
-            isNewMessage = false;
-            std::lock_guard<std::mutex> lock(clientMutex);
         }
+
         // Чтение аудио данных из устройства
         handleError(Pa_ReadStream(recordAudio, dataPackageSend.audioBuffer, FRAMES_PER_BUFFER));
-
-        // Логируем отправку данных
-        int sendResult = sendto(sockfd, (char*)&dataPackageSend, sizeof(dataPackageSend), 0, (sockaddr*)&serverAddr, sizeof(serverAddr));
-        if (sendResult == SOCKET_ERROR) {
-            std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
-            std::cout << dataPackageSend.type << std::endl;
-        } else {
-            std::cout << "Sent data to server" << std::endl; // Логирование отправки
-        }
+        sendData(dataPackageSend, serverAddr);
     }
 }
 

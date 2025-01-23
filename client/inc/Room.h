@@ -23,6 +23,7 @@ class Room {
     std::atomic<bool> isNewMessage;      // Флаг работы комнаты
     std::mutex clientMutex;            // Мьютекс для потокобезопасной работы с клиентами
     std::set<uint64_t> bufferACK;
+    std::set<uint64_t> bufferMessage;
 
     DataMessage dataPackageMessage{}, dataPackageSend{}, dataPackageConfirm{};
 
@@ -37,7 +38,16 @@ class Room {
 
     void roomLoop();
     bool isSignalAboveThreshold(const float *buffer, int frames) const;
-    void handleError(PaError err);
+
+    static uint64_t generateMessageId();
+
+    bool waitForAck(uint64_t messageId, int timeoutMs);
+
+    static void handleError(PaError err);
+    void sendAcknowledgement(uint64_t message_id, SOCKADDR_IN serverAddr) const;
+
+    void sendData(const DataMessage &dataPackage, SOCKADDR_IN serverAddr);
+
 public:
     Room(const std::string &key, int serverSockfd, DataMessage dataPackage, SOCKADDR_IN serverAddr);
     ~Room();

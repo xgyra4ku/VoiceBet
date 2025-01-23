@@ -70,6 +70,15 @@ bool RoomHandler::waitForAck(uint64_t messageId, int timeoutMs) {
 }
 
 
+void RoomHandler::sendAcknowledgement(const uint64_t message_id,  SOCKADDR_IN serverAddr) const {
+    // Формируем подтверждение и отправляем
+    DataMessage ackMessage{};
+    ackMessage.message_id = message_id;
+    ackMessage.type = 3; // Тип подтверждения
+    if (const int sendResult = sendto(sockfd, (char*)&ackMessage, sizeof(ackMessage), 0, (sockaddr*)&serverAddr, sizeof(serverAddr)); sendResult == SOCKET_ERROR) {
+        std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
+    }
+}
 
 void RoomHandler::roomLoop() {
     std::cout << "Room " << roomKey << " is running..." << std::endl;
@@ -117,7 +126,9 @@ void RoomHandler::roomLoop() {
             } else if (messagePackage.dataPackage.type == 3) {  // Тип сообщения: подтверждение (ACK)
                 std::lock_guard<std::mutex> lock(clientMutex);
                 uint64_t receivedId = messagePackage.dataPackage.message_id;
-                bufferACK.erase(receivedId);
+                if (bufferACK.find(receivedId) != bufferACK.end()) {
+                    bufferACK.erase(receivedId);
+                }
                 std::cout << "Acknowledgment received for message_id: " << receivedId << std::endl;
             }
 
