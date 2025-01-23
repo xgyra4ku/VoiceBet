@@ -124,21 +124,9 @@ void CoreApplication::run() {
         int bytesReceived = recvfrom(sockfd, (char*)&request, sizeof(request), 0, (sockaddr*)&clientAddr, &clientAddrLen);
         if (bytesReceived > 0) {
             if (request.type == 1) {
-                //room->processMessage(request);
-            }
-            if (isSignalAboveThreshold(request.audioBuffer, FRAMES_PER_BUFFER)) {
-                std::cout << "Signal above threshold, processing..." << std::endl;
-                // Здесь можно обработать или отправить звук
-                // Обработка аудио-данных
-                PaError err = Pa_WriteStream(streamAudio, request.audioBuffer, FRAMES_PER_BUFFER);
-                if (err == paOutputUnderflowed) {
-                    std::cerr << "PortAudio warning: Output underflowed." << std::endl;
-                } else {
-                    handleError(err);
-                }// Формирование ответа клиенту
-            } else {
-                std::cout << "Signal below threshold, ignoring..." << std::endl;
-                // Игнорируем звук, т.к. он слишком тихий
+                room->processMessage(request);
+            } else if (request.type == 3) {
+
             }
         }
     }

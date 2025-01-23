@@ -23,7 +23,9 @@ Room::Room(const std::string &key, int serverSockfd, DataMessage dataPackage, SO
     std::strcpy(dataPackageSend.username, dataPackage.username);  // Копируем имя пользователя в объект
     std::strcpy(dataPackageSend.keyRoom, dataPackage.keyRoom);  // Копируем ключ канала в объект
     dataPackageSend.type = dataPackage.type;  // Устанавливаем тип данных
-
+    std::strcpy( dataPackageConfirm.username, dataPackage.username);  // Копируем имя пользователя в объект
+    std::strcpy( dataPackageConfirm.keyRoom, dataPackage.keyRoom);  // Копируем ключ канала в объект
+    dataPackageConfirm.type = 3;
 }
 
 Room::~Room() {
@@ -82,19 +84,31 @@ void Room::roomLoop() {
 
     while (isRunning) {
         if (isNewMessage) {
-            if (isSignalAboveThreshold(dataPackageMessage.audioBuffer, FRAMES_PER_BUFFER)) {
-                std::cout << "Signal above threshold, processing..." << std::endl;
-                // Здесь можно обработать или отправить звук
-                // Обработка аудио-данных
-                PaError err = Pa_WriteStream(streamAudio, dataPackageMessage.audioBuffer, FRAMES_PER_BUFFER);
-                if (err == paOutputUnderflowed) {
-                    std::cerr << "PortAudio warning: Output underflowed." << std::endl;
+            // Поиск элемента
+            auto it = bufferACK.find(dataPackageMessage.message_id);
+            if (it == bufferACK.end()){
+                if (isSignalAboveThreshold(dataPackageMessage.audioBuffer, FRAMES_PER_BUFFER)) {
+                    std::cout << "Signal above threshold, processing..." << std::endl;
+                    // Здесь можно обработать или отправить звук
+                    // Обработка аудио-данных
+                    PaError err = Pa_WriteStream(streamAudio, dataPackageMessage.audioBuffer, FRAMES_PER_BUFFER);
+                    if (err == paOutputUnderflowed) {
+                        std::cerr << "PortAudio warning: Output underflowed." << std::endl;
+                    } else {
+                        handleError(err);
+                    }// Формирование ответа клиенту
                 } else {
-                    handleError(err);
-                }// Формирование ответа клиенту
+                    std::cout << "Signal below threshold, ignoring..." << std::endl;
+                    // Игнорируем звук, т.к. он слишком тихий
+                }
+            }
+            dataPackageConfirm.message_id = dataPackageMessage.message_id;
+            // Логируем отправку данных
+            int sendResult = sendto(sockfd, (char*)&dataPackageConfirm, sizeof(dataPackageConfirm), 0, (sockaddr*)&serverAddr, sizeof(serverAddr));
+            if (sendResult == SOCKET_ERROR) {
+                std::cerr << "ACK failed: " << WSAGetLastError() << std::endl;
             } else {
-                std::cout << "Signal below threshold, ignoring..." << std::endl;
-                // Игнорируем звук, т.к. он слишком тихий
+                std::cout << "ACK data to server" << std::endl; // Логирование отправки
             }
             isNewMessage = false;
             std::lock_guard<std::mutex> lock(clientMutex);

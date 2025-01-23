@@ -9,6 +9,7 @@
 #include <winsock2.h>
 #include <map>
 #include <portaudio.h>  // Для работы с аудио
+#include <set>
 
 #include "structMessage.h"
 
@@ -21,8 +22,9 @@ class Room {
     std::atomic<bool> isRunning;          // Флаг работы комнаты
     std::atomic<bool> isNewMessage;      // Флаг работы комнаты
     std::mutex clientMutex;            // Мьютекс для потокобезопасной работы с клиентами
+    std::set<uint64_t> bufferACK;
 
-    DataMessage dataPackageMessage{}, dataPackageSend{};
+    DataMessage dataPackageMessage{}, dataPackageSend{}, dataPackageConfirm{};
 
     PaStream* streamAudio = nullptr;   // Поток для трансляции аудио
     PaStream* recordAudio = nullptr;  // Поток для записи аудио
@@ -31,6 +33,7 @@ class Room {
     const char* SERVER_IP = "192.168.0.107"; // IP-адрес сервера (localhost)
     const float THRESHOLD = 0.0f;            // Порог срабатывания для аудио (например, амплитуда должна быть больше 0.01)
     const int SAMPLE_RATE = 44100;            // Частота дискретизации (частота аудио)
+
 
     void roomLoop();
     bool isSignalAboveThreshold(const float *buffer, int frames) const;

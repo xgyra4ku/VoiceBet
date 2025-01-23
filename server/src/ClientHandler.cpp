@@ -1,6 +1,7 @@
 #include "../inc/ClientHandler.h"
 #include <iostream>
 #include <cstring>
+#include <vector>
 #include <ws2tcpip.h>  // Для inet_pton, преобразование IP-адресов
 
 
@@ -39,39 +40,87 @@ void RoomHandler::stop() {
     }
 }
 
-void RoomHandler::confirmAKS() {
-    isAKS = true;
+void RoomHandler::confirmACK() {
+    isACK = true;
     std::lock_guard<std::mutex> lock(clientMutex);
 }
 
-void RoomHandler::confirmMessage() {
-    while (!isAKS) {
+uint64_t RoomHandler::generateMessageId() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()
+    ).count();
+}
+bool RoomHandler::waitForAck(uint64_t messageId, int timeoutMs) {
+    auto startTime = std::chrono::steady_clock::now();
 
+    while (true) {
+        {
+            std::lock_guard<std::mutex> lock(clientMutex);
+            if (bufferACK.find(messageId) == bufferACK.end()) {
+                return true;  // Подтверждение получено
+            }
+        }
+
+        auto currentTime = std::chrono::steady_clock::now();
+        int elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count();
+        if (elapsedMs > timeoutMs) {
+            return false;  // Таймаут истёк
+        }
     }
 }
 
 
+
 void RoomHandler::roomLoop() {
     std::cout << "Room " << roomKey << " is running..." << std::endl;
+
     while (isRunning) {
-        if (isNewMessage){
-            //std::cout << "Message received in room " << roomKey << ": " << messagePackage.dataPackage.username << std::endl;
+        if (isNewMessage) {
+            if (messagePackage.dataPackage.type == 1) {  // Тип сообщения: аудио
+                std::lock_guard<std::mutex> lock(clientMutex);
 
-            // Пример отправки ответа
-            std::lock_guard<std::mutex> lock(clientMutex);
-            for (const auto& client : clients) {
-                 if (client.second.username != messagePackage.dataPackage.username) {
-                    ssize_t bytesSent = sendto(sockfd, (char*)&messagePackage.dataPackage, sizeof(messagePackage.dataPackage), 0,
-                           (sockaddr*)&client.second.clientAddr, sizeof(client.second.clientAddr));
-                    if (bytesSent > 0) {
-                        std::cout << "Response sent to client: " << client.second.username << std::endl;
-                    } else {
-                        std::cerr << "Failed to send response to client: " << client.second.username
-                                  << " Error: " << WSAGetLastError() << std::endl;
+                // Создаём уникальный ID сообщения
+                uint64_t messageId = generateMessageId();
+                messagePackage.dataPackage.message_id = messageId;
+
+                for (const auto& client : clients) {
+                    if (client.second.username != messagePackage.dataPackage.username) {
+                        bool ackReceived = false;
+                        int retryCount = 0;
+                        const int maxRetries = 3;      // Максимальное число попыток
+                        const int timeoutMs = 1000;   // Таймаут ожидания подтверждения в миллисекундах
+
+                        while (!ackReceived && retryCount < maxRetries) {
+                            ssize_t bytesSent = sendto(sockfd, (char*)&messagePackage.dataPackage, sizeof(messagePackage.dataPackage), 0,
+                                                       (sockaddr*)&client.second.clientAddr, sizeof(client.second.clientAddr));
+                            if (bytesSent > 0) {
+                                std::cout << "Message sent to client: " << client.second.username << ", message_id: " << messageId << std::endl;
+
+                                // Ожидание подтверждения
+                                ackReceived = waitForAck(messageId, timeoutMs);
+                                if (!ackReceived) {
+                                    retryCount++;
+                                    std::cerr << "No acknowledgment received. Retrying (" << retryCount << "/" << maxRetries << ")..." << std::endl;
+                                }
+                            } else {
+                                std::cerr << "Failed to send message to client: " << client.second.username
+                                          << " Error: " << WSAGetLastError() << std::endl;
+                                break;
+                            }
+                        }
+
+                        if (!ackReceived) {
+                            std::cerr << "Failed to receive acknowledgment from client: " << client.second.username << " after " << maxRetries << " attempts." << std::endl;
+                        }
                     }
-                 }
-
+                }
+            } else if (messagePackage.dataPackage.type == 3) {  // Тип сообщения: подтверждение (ACK)
+                std::lock_guard<std::mutex> lock(clientMutex);
+                uint64_t receivedId = messagePackage.dataPackage.message_id;
+                bufferACK.erase(receivedId);
+                std::cout << "Acknowledgment received for message_id: " << receivedId << std::endl;
             }
+
             isNewMessage = false;
         }
     }
