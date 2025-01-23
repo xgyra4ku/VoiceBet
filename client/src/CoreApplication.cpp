@@ -123,11 +123,8 @@ void CoreApplication::run() {
         // Получение ответа от сервера
         int bytesReceived = recvfrom(sockfd, (char*)&request, sizeof(request), 0, (sockaddr*)&clientAddr, &clientAddrLen);
         if (bytesReceived > 0) {
-            if (request.type == 1) {
-                room->processMessage(request);
-            } else if (request.type == 3) {
-
-            }
+            room->processMessage(request);
+            std::cout << "Received message: " << request.message_id << ", Type: " << request.type << std::endl;
         }
     }
 }

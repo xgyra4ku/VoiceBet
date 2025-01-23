@@ -13,8 +13,8 @@
 struct DataMessage {
     char username[128];      // имя пользователя
     char keyRoom[256];       // ключ канала
-    char type;               // 1 - аудио включено(голос), 0 - выключено(сообщение) 2 - запрос на подключение
-    float audioBuffer[512]; // Буфер для аудио данных
+    int type;               // 1 - аудио включено(голос), 0 - выключено(сообщение) 2 - запрос на подключение
+    float audioBuffer[1024]; // Буфер для аудио данных
     uint64_t message_id;
     bool is_ack;
 };
@@ -43,6 +43,7 @@ private:
     int sockfd;                         // Сокет сервера
     std::mutex clientMutex;             // Мьютекс для потокобезопасной работы с клиентами
     std::set<uint64_t> bufferACK;
+    std::set<uint64_t> bufferMessage;
     std::mutex ackMutex;
 
 
@@ -50,7 +51,7 @@ private:
     static uint64_t generateMessageId();
     bool waitForAck(uint64_t messageId, int timeoutMs);
 
-    void sendAcknowledgement(uint64_t message_id, SOCKADDR_IN serverAddr) const;
+    void sendAcknowledgement(uint64_t message_id, SOCKADDR_IN& serverAddr) const;
 
 public:
     RoomHandler(const std::string &key, int serverSockfd);
@@ -60,7 +61,7 @@ public:
     void addClient(const SOCKADDR_IN& clientAddr, DataMessage dataPackage); // Добавить клиента
     void start(); // Запуск комнаты
     void stop(); // Остановка комнаты
-    void processMessage(DataMessage dataPackage, SOCKADDR_IN clientAddr);
+    void processMessage(DataMessage dataPackage, SOCKADDR_IN& clientAddr);
     void confirmACK();
 };
 

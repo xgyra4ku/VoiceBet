@@ -12,11 +12,21 @@ RoomHandler::~RoomHandler() {
     stop();
 }
 
-void RoomHandler::processMessage(DataMessage dataPackage, SOCKADDR_IN clientAddr) {
+void RoomHandler::processMessage(DataMessage dataPackage, SOCKADDR_IN& clientAddr) {
+    if (dataPackage.type == 3) {
+        // Тип сообщения: подтверждение (ACK)
+        std::lock_guard<std::mutex> lock(clientMutex);
+        uint64_t receivedId = messagePackage.dataPackage.message_id;
+        if (bufferACK.find(receivedId) != bufferACK.end()) {
+            bufferACK.erase(receivedId);
+        }
+        std::cout << "Acknowledgment received for message_id: " << receivedId << std::endl;
+    }
     messagePackage.dataPackage = dataPackage;
     messagePackage.clientAddr = clientAddr;
     isNewMessage = true;
     std::lock_guard<std::mutex> lock(clientMutex);
+
 }
 
 void RoomHandler::addClient(const SOCKADDR_IN& clientAddr, DataMessage dataPackage) {
@@ -70,13 +80,20 @@ bool RoomHandler::waitForAck(uint64_t messageId, int timeoutMs) {
 }
 
 
-void RoomHandler::sendAcknowledgement(const uint64_t message_id,  SOCKADDR_IN serverAddr) const {
+void RoomHandler::sendAcknowledgement(const uint64_t message_id,  SOCKADDR_IN& Addr) const {
     // Формируем подтверждение и отправляем
+
     DataMessage ackMessage{};
     ackMessage.message_id = message_id;
     ackMessage.type = 3; // Тип подтверждения
-    if (const int sendResult = sendto(sockfd, (char*)&ackMessage, sizeof(ackMessage), 0, (sockaddr*)&serverAddr, sizeof(serverAddr)); sendResult == SOCKET_ERROR) {
+    std::memset(ackMessage.audioBuffer, 0, sizeof(ackMessage.audioBuffer));
+    std::strncpy(ackMessage.username, "ack", sizeof(ackMessage.username) - 1);
+    std::strncpy(ackMessage.keyRoom, "ack_room", sizeof(ackMessage.keyRoom) - 1);
+    const int sendResult = sendto(sockfd, (char*)&ackMessage, sizeof(ackMessage), 0, (sockaddr*)&Addr, sizeof(Addr));
+    if (sendResult == SOCKET_ERROR) {
         std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
+    } else {
+        std::cout << "Sending ACK message. Type: " << ackMessage.type << ", ID: " << ackMessage.message_id << std::endl;
     }
 }
 
@@ -85,53 +102,57 @@ void RoomHandler::roomLoop() {
 
     while (isRunning) {
         if (isNewMessage) {
-            if (messagePackage.dataPackage.type == 1) {  // Тип сообщения: аудио
+            if (messagePackage.dataPackage.type == 1) {
                 std::lock_guard<std::mutex> lock(clientMutex);
+                sendAcknowledgement(messagePackage.dataPackage.message_id, messagePackage.clientAddr);
+                if (bufferMessage.find(messagePackage.dataPackage.message_id) == bufferMessage.end()) {
+                    // Создаём уникальный ID сообщения
+                    uint64_t messageId = generateMessageId();
+                    messagePackage.dataPackage.message_id = messageId;
+                    bufferACK.insert(messageId);
+                    for (const auto &client: clients) {
 
-                // Создаём уникальный ID сообщения
-                uint64_t messageId = generateMessageId();
-                messagePackage.dataPackage.message_id = messageId;
-
-                for (const auto& client : clients) {
-                    if (client.second.username != messagePackage.dataPackage.username) {
-                        bool ackReceived = false;
+                        // if (client.second.username != messagePackage.dataPackage.username) {
+                        bool ackReceived = false; //false default
                         int retryCount = 0;
-                        const int maxRetries = 3;      // Максимальное число попыток
-                        const int timeoutMs = 1000;   // Таймаут ожидания подтверждения в миллисекундах
+                        const int maxRetries = 3; // Максимальное число попыток
+                        const int timeoutMs = 10; // Таймаут ожидания подтверждения в миллисекундах
 
                         while (!ackReceived && retryCount < maxRetries) {
-                            ssize_t bytesSent = sendto(sockfd, (char*)&messagePackage.dataPackage, sizeof(messagePackage.dataPackage), 0,
-                                                       (sockaddr*)&client.second.clientAddr, sizeof(client.second.clientAddr));
+                            ackReceived = true;
+                            ssize_t bytesSent = sendto(sockfd, (char *) &messagePackage.dataPackage,
+                                                       sizeof(messagePackage.dataPackage), 0,
+                                                       (sockaddr *) &client.second.clientAddr,
+                                                       sizeof(client.second.clientAddr));
                             if (bytesSent > 0) {
-                                std::cout << "Message sent to client: " << client.second.username << ", message_id: " << messageId << std::endl;
+                                // std::cout << "Message sent to client: " << client.second.username << ", message_id: " <<
+                                //         messageId << std::endl;
 
                                 // Ожидание подтверждения
-                                ackReceived = waitForAck(messageId, timeoutMs);
+                                //ackReceived = waitForAck(messageId, timeoutMs);
                                 if (!ackReceived) {
                                     retryCount++;
-                                    std::cerr << "No acknowledgment received. Retrying (" << retryCount << "/" << maxRetries << ")..." << std::endl;
+                                    std::cerr << "No acknowledgment received. Retrying (" << retryCount << "/" <<
+                                            maxRetries << ")..." << std::endl;
                                 }
                             } else {
                                 std::cerr << "Failed to send message to client: " << client.second.username
-                                          << " Error: " << WSAGetLastError() << std::endl;
+                                        << " Error: " << WSAGetLastError() << std::endl;
                                 break;
                             }
                         }
 
                         if (!ackReceived) {
-                            std::cerr << "Failed to receive acknowledgment from client: " << client.second.username << " after " << maxRetries << " attempts." << std::endl;
+                            std::cerr << "Failed to receive acknowledgment from client: " << client.second.username <<
+                                    " after " << maxRetries << " attempts." << std::endl;
                         }
+                        // }
                     }
-                }
-            } else if (messagePackage.dataPackage.type == 3) {  // Тип сообщения: подтверждение (ACK)
-                std::lock_guard<std::mutex> lock(clientMutex);
-                uint64_t receivedId = messagePackage.dataPackage.message_id;
-                if (bufferACK.find(receivedId) != bufferACK.end()) {
-                    bufferACK.erase(receivedId);
-                }
-                std::cout << "Acknowledgment received for message_id: " << receivedId << std::endl;
-            }
 
+                    bufferMessage.clear();
+                    bufferMessage.insert(messagePackage.dataPackage.message_id);
+                }
+            }
             isNewMessage = false;
         }
     }

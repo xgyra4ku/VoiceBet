@@ -46,10 +46,18 @@ void Room::stop() {
 }
 
 void Room::processMessage(const DataMessage &dataPackage) {
-    dataPackageMessage = dataPackage;
-    isNewMessage = true;
-    std::lock_guard<std::mutex> lock(clientMutex);
-
+    if (dataPackage.type == 3) {
+        std::lock_guard<std::mutex> lock(clientMutex);
+        uint64_t receivedId = dataPackageMessage.message_id;
+        if (bufferACK.find(receivedId) != bufferACK.end()) {
+            bufferACK.erase(receivedId);
+        }
+        std::cout << "Acknowledgment received for message_id: " << receivedId << std::endl;
+    } else {
+        dataPackageMessage = dataPackage;
+        isNewMessage = true;
+        std::lock_guard<std::mutex> lock(clientMutex);
+    }
 }
 
 void Room::handleError(const PaError err) {
@@ -104,18 +112,24 @@ void Room::sendAcknowledgement(const uint64_t message_id,  SOCKADDR_IN serverAdd
     DataMessage ackMessage{};
     ackMessage.message_id = message_id;
     ackMessage.type = 3; // Тип подтверждения
-    if (const int sendResult = sendto(sockfd, (char*)&ackMessage, sizeof(ackMessage), 0, (sockaddr*)&serverAddr, sizeof(serverAddr)); sendResult == SOCKET_ERROR) {
+    std::memset(ackMessage.audioBuffer, 0, sizeof(ackMessage.audioBuffer));
+    std::strncpy(ackMessage.username, "ack", sizeof(ackMessage.username) - 1);
+    std::strncpy(ackMessage.keyRoom, "ack_room", sizeof(ackMessage.keyRoom) - 1);
+    const int sendResult = sendto(sockfd, (char*)&ackMessage, sizeof(ackMessage), 0, (sockaddr*)&serverAddr, sizeof(serverAddr));
+    if (sendResult == SOCKET_ERROR) {
         std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
+    } else {
+        std::cout << "Sending ACK message. Type: " << ackMessage.type << ", ID: " << ackMessage.message_id << std::endl;
     }
 }
 // Функция для отправки данных серверу
 void Room::sendData(const DataMessage &dataPackage, SOCKADDR_IN serverAddr) {
     uint64_t messageId = generateMessageId();
     dataPackageSend.message_id = messageId;
+    bufferACK.insert(messageId);
     // Логируем отправку данных
     int sendResult = sendto(sockfd, (char*)&dataPackageSend, sizeof(dataPackageSend), 0, (sockaddr*)&serverAddr, sizeof(serverAddr));
-    if (sendResult == SOCKET_ERROR) {
-        std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
+    if (sendResult > 0) {
         bool ackReceived = false;
         int retryCount = 0;
         const int maxRetries = 3;      // Максимальное число попыток
@@ -144,7 +158,7 @@ void Room::sendData(const DataMessage &dataPackage, SOCKADDR_IN serverAddr) {
             std::cerr << "Failed to receive acknowledgment from client: " << dataPackageSend.username << " after " << maxRetries << " attempts." << std::endl;
         }
     } else {
-        std::cout << "Sent data to server" << std::endl; // Логирование отправки
+        std::cout << "Sent falied data to server" << std::endl; // Логирование отправки
     }
 }
 
@@ -177,16 +191,9 @@ void Room::roomLoop() {
                     bufferMessage.insert(dataPackageMessage.message_id);
                 }
                 sendAcknowledgement(dataPackageMessage.message_id, serverAddr);
-                isNewMessage = false;
                 std::lock_guard<std::mutex> lock(clientMutex);
-            } else if (dataPackageMessage.type == 3) {
-                std::lock_guard<std::mutex> lock(clientMutex);
-                uint64_t receivedId = dataPackageMessage.message_id;
-                if (bufferACK.find(receivedId) != bufferACK.end()) {
-                    bufferACK.erase(receivedId);
-                }
-                std::cout << "Acknowledgment received for message_id: " << receivedId << std::endl;
             }
+            isNewMessage = false;
         }
 
         // Чтение аудио данных из устройства
