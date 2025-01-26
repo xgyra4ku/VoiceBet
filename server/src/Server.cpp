@@ -50,7 +50,9 @@ void Server::run() {
 
         if (bytesReceived > 0) {
             if (dataPackage.type == 1) {
-                rooms[dataPackage.keyRoom]->processMessage(dataPackage, clientAddr);
+                //rooms[dataPackage.keyRoom]->processMessage(dataPackage, clientAddr);
+                sendto(sockfd, (char*)&dataPackage, sizeof(dataPackage), 0,
+                                           (sockaddr*)&clientAddr, clientAddrLen);
             }
             else if (dataPackage.type == 2) {
                 const char* response = "yes";

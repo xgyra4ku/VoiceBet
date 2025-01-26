@@ -117,15 +117,34 @@ void CoreApplication::run() {
     std::strcpy(request.keyRoom, KEY_ROOM);  // Копируем ключ канала в объект
     request.type = type;  // Устанавливаем тип данных
     room = new Room(KEY_ROOM, sockfd, request, serverAddr);
-    room->start();
+    //room->start();
     while (true) {
+
+
+        handleError(Pa_ReadStream(recordAudio, request.audioBuffer, FRAMES_PER_BUFFER));
+        sendto(sockfd, (char*)&request, sizeof(request), 0, (sockaddr*)&serverAddr, sizeof(serverAddr));
 
         // Получение ответа от сервера
         int bytesReceived = recvfrom(sockfd, (char*)&request, sizeof(request), 0, (sockaddr*)&clientAddr, &clientAddrLen);
         if (bytesReceived > 0) {
-            room->processMessage(request);
-            std::cout << "Received message: " << request.message_id << ", Type: " << request.type << std::endl;
+            // room->processMessage(request);
+            // std::cout << "Received message: " << request.message_id << ", Type: " << request.type << std::endl;
+            if (isSignalAboveThreshold(request.audioBuffer, FRAMES_PER_BUFFER)) {
+                std::cout << "Signal above threshold, processing..." << std::endl;
+                // Здесь можно обработать или отправить звук
+                // Обработка аудио-данных
+                PaError err = Pa_WriteStream(streamAudio, request.audioBuffer, FRAMES_PER_BUFFER);
+                if (err == paOutputUnderflowed) {
+                    std::cerr << "PortAudio warning: Output underflowed." << std::endl;
+                } else {
+                    handleError(err);
+                }// Формирование ответа клиенту
+            } else {
+                std::cout << "Signal below thresh old, ignoring..." << std::endl;
+                // Игнорируем звук, т.к. он слишком тихий
+            }
         }
+
     }
 }
 
